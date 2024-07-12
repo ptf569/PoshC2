@@ -1,0 +1,54 @@
+{% include "header.html" %}
+        <div class="col-11" id="content" style="border-left:1px solid #b1b1b1;">
+            <div class="row">
+                <div class="col-12">
+                        <br/>
+                        <button type="button" class="btn btn-success">Implants</button>
+                        <div id="implants"></div>
+                </div>
+                <!--/ title  -->
+            </div>
+            <!-- /row -->
+            <!-- / end of Implants  box-->
+<br/>
+            <div class="row" style="display:none">
+                <div class="col-12">
+                    <button type="button" class="btn btn-success">Commands</button>
+                    <div id="commands" style="border:1px solid #b1b1b1;">
+                        <form id="command-form"><br>
+                        <label for="implant_id">Implant ID:</label>
+                        <select id="implant_id" name="implant_id">
+                            {% for implant in implants %}
+                                <option value="{{ implant.id }}">{{ implant.numeric_id }} - {{implant.domain}}\{{ implant.user }} @ {{implant.hostname}}</option>
+                            {% endfor %}
+                        </select>
+                        <label for="user">User:</label><input size="15" type="text" id="user" name="user" value="{{username}}">
+                        <label for="command">Command: </label><input size="75" type="text" id="command" name="command">
+                        <input type="submit" value="Submit"><br><br><label id="output" for="output"></label>
+                        </form>
+                        <a href="/files/10" target="_blank">Images/Files API</a>
+                    </div>
+                </div>
+            </div>
+            <!-- / end of commands box-->
+<br/>
+            <div class="row">
+                <input type="hidden" id="active_implant"/>
+
+                <div class="col-12">
+                    <div class="row">
+                        <div class="col-12" id="actionmenu">
+                        <button type="button" class="btn btn-success" id="box_tasks" onclick="change_logs_view('tasks')">Server log</button>
+                    </div>
+                </div>
+                    <div id="logs" style="border:1px solid #b1b1b1;height:400px;overflow-y: scroll;resize:vertical">
+                        <div class="col-12" style="border:0px solid #b1b1b1;hei4ght:400px;overflow-y: scroll;" id="content_tasks"></div>
+                    </div>
+                </div>
+                <!--/ title  -->
+            </div>
+            <!-- /row -->
+            <!-- / end of Tasks box-->
+        </div>
+        <!-- /content -->
+{% include "footer.html" %}
