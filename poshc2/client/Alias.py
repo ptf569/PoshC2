@@ -64,6 +64,7 @@ cs_replace = [
     ["sqlquery", "run-exe SQLQuery.Program SQLQuery"],
     ["shadowcopy", "run-exe SharpShadowCopy.Program SharpShadowCopy"],
     ["filegrep", "run-exe FileGrep.Program FileGrep"],
+    ["grep", "run-exe FileGrep.Program FileGrep"],
     ["stickynotes-extract", "run-exe StickyNotesExtract.Program StickyNotesExtract"],
     ["sharpshares", "run-exe-background SharpShares.Program SharpShares"],
     ["sharpprintnightmare", "run-exe SharpPrintNightmare.Program SharpPrintNightmare"],
@@ -75,6 +76,8 @@ cs_replace = [
     ["show-clipboard-history", "run-exe clipboard.Program clipboard show-history"],
     ["set-clipboard-history", "run-exe clipboard.Program clipboard set-history"],
     ["clear-clipboard", "run-exe clipboard.Program clipboard clear"],
+    ["certify", "run-exe Certify.Program Certify"],
+    ["incident-response-toolkit", "run-exe IncidentResponseToolkit.Program IncidentResponseToolkit"]
 ]
 
 jxa_alias = [
@@ -99,4 +102,5 @@ um_alias = [
 ]
 
 um_replace = [
+    ["sharpps", "run-exe Program PS"],
 ]

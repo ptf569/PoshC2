@@ -17,9 +17,12 @@ import re
 import sys
 import os
 
-from flask import Flask, request, jsonify, make_response, send_from_directory, render_template
+from flask import Flask, request, jsonify, make_response, send_from_directory, render_template, redirect, url_for
 from flask_httpauth import HTTPBasicAuth
 from flask_restx import Api, Resource, fields
+
+# import do_generate_reports from the ImplantHandler.py file
+from poshc2.client.command_handlers.ImplantHandler import do_generate_reports
 
 from poshc2.client.command_handlers.PSHandler import commands as powershellsc,commands_help as commands_help_powershell, examples as examples_powershell, common_implant_commands, common_implant_commands_help, common_implant_examples, common_block_help, ImplantType
 from poshc2.client.command_handlers.SharpHandler import commands as sharpsc,commands_help as commands_help_sharp, examples as examples_sharp, common_implant_commands, common_implant_commands_help, common_implant_examples, common_block_help, ImplantType
@@ -30,13 +33,21 @@ from poshc2.client.command_handlers.LinuxHandler import commands as linuxsc,comm
 from poshc2.client.command_handlers.PBindHandler import commands as pbindsc,commands_help as commands_help_pbind, examples as examples_pbind, common_implant_commands, common_implant_commands_help, common_implant_examples, common_block_help, ImplantType
 
 from poshc2.server.Core import decrypt
-from poshc2.server.Config import PoshInstallDirectory, DownloadsDirectory, PayloadsDirectory
-from poshc2.server.database.Helpers import delete_object, get_alive_implants, get_c2_messages, get_implant, get_new_tasks_for_implant, get_tasks_for_implant, insert_object, select_first, select_all, select_subset
+from poshc2.server.Config import PoshInstallDirectory, DownloadsDirectory, PayloadsDirectory, ReportsDirectory
+from poshc2.server.database.Helpers import delete_object, get_alive_implants, get_c2_messages, get_implant, get_new_tasks_for_implant, get_tasks_for_implant, insert_object, select_first, select_all, select_subset, get_task
 from poshc2.server.database.Model import URL, Implant, Task, NewTask, AutoRun, C2Server, Cred, OpsecEntry, C2Message, PowerStatus, HostedFile, MitreTTP
 
 app = Flask(__name__, template_folder=f"{PoshInstallDirectory}/resources/html-templates/", static_folder=f"{PoshInstallDirectory}/resources/html-templates/include/")
-api = Api(app, version='1.0', title='PoshC2 API', description='A simple API for PoshC2')
 auth = HTTPBasicAuth()
+
+# ! This must be defined *before* the API is created, otherwise the API will hijack the default route '/'
+@app.route('/')
+@app.route('/home')
+@auth.login_required
+def home_view():
+    return render_template('home.html', username=auth.username())
+
+api = Api(app, version='1.0', title='PoshC2 API', description='A simple API for PoshC2', doc='/swagger')
 
 API_USERS = {
     "poshc2": "change_on_install",
@@ -80,6 +91,7 @@ def model_to_api_fields(model):
 # Cred, OpsecEntry, C2Message, PowerStatus, HostedFile, MitreTTP
 DOWNLOADS_DIR = os.path.dirname(DownloadsDirectory)
 PAYLOADS_DIR = os.path.dirname(PayloadsDirectory)
+REPORTS_DIR = os.path.dirname(ReportsDirectory)
 
 @api.route('/urls')
 class URLS(Resource):
@@ -91,7 +103,7 @@ class URLS(Resource):
         Returns a list of defined urls
         """
         return data_to_json(URL)
-    
+
 
 @api.route('/implants')
 class Implants(Resource):
@@ -130,13 +142,23 @@ class Tasks(Resource):
         Returns a list of tasks
         """
         if number_of_rows:
-            return subset_data_to_json(Task, number_of_rows)  
+            return subset_data_to_json(Task, number_of_rows)
         elif implant_id:
             all_data =  get_tasks_for_implant(implant_id)
             return [attributes_to_dict(Task, single_data) for single_data in all_data]
         else:
             return data_to_json(Task)
 
+@api.route('/task/<task_id>')
+class Tasks(Resource):
+    @api.doc("task")
+    @auth.login_required
+    @api.marshal_list_with(api.model('Task', model_to_api_fields(Task)))
+    def get(self, task_id=None):
+        """
+        Returns a task by id
+        """
+        return get_task(task_id)
 
 newtask_model = api.model('NewTask', {
     'implant_id': fields.String(required=True, description='The unique implant_id for which the task is to be executed'),
@@ -279,30 +301,40 @@ def list_files(number_of_files=None):
     if number_of_files:
         images = [f for f in sorted_files[0:number_of_files]]
     else:
-        images = [f for f in sorted_files]    
-    return render_template('thumbnails.html', images=images)   
+        images = [f for f in sorted_files]
+    return render_template('files.html', images=images)
+
+
+@app.route('/files-list', methods=['GET'])
+@app.route('/files-list/<int:number_of_files>', methods=['GET'])
+@auth.login_required
+def list_files_json(number_of_files=None):
+    files = os.listdir(DOWNLOADS_DIR)
+    sorted_files = sorted(files, key=lambda x: os.path.getctime(os.path.join(DOWNLOADS_DIR, x)), reverse=True)
+    if number_of_files:
+        images = [f for f in sorted_files[0:number_of_files]]
+    else:
+        images = [f for f in sorted_files]
+    response = {
+        'files': sorted_files,
+        'base_url': url_for('serve_file', filename='', _external=True)
+    }
+    return jsonify(response)
 
 
 @app.route('/file/<path:filename>', methods=['GET'])
 @auth.login_required
 def serve_file(filename):
-    return send_from_directory(DOWNLOADS_DIR, filename) 
+    return send_from_directory(DOWNLOADS_DIR, filename)
 
 
-@app.route('/taskview')
-@app.route('/taskview/<number_of_rows>')
-@app.route('/taskview/implant/<implant_id>')
+@app.route('/file/upload', methods=['POST'])
 @auth.login_required
-def display_tasks(number_of_rows=None, implant_id=None):
-    if number_of_rows:
-        tasks = subset_data_to_json(Task, number_of_rows)
-    elif implant_id:
-        all_data = get_tasks_for_implant(implant_id)
-        tasks = [attributes_to_dict(Task, single_data) for single_data in all_data]
-    else:
-        tasks = data_to_json(Task)
-
-    return render_template('tasks.html', tasks=tasks)
+def upload_file():
+    file = request.files['file']
+    if file:
+        file.save(os.path.join(PAYLOADS_DIR, file.filename))
+    return redirect(url_for('list_payloads'))
 
 
 @app.route('/taskviewwithnew')
@@ -323,7 +355,7 @@ def display_tasks_with_new(number_of_rows=None, implant_id=None):
         tasks = data_to_json(Task)
         new_tasks = data_to_json(NewTask)
 
-    return render_template('tasks.html', tasks=tasks, new_tasks=new_tasks, implant_id=implant_id)
+    return render_template('components/implant_tasks.html', tasks=tasks, new_tasks=new_tasks, implant_id=implant_id, username=auth.username())
 
 @app.route('/newtasksview')
 @app.route('/newtasksview/<number_of_rows>')
@@ -338,7 +370,7 @@ def display_newtasks(number_of_rows=None, task_id=None):
     else:
         new_tasks = data_to_json(NewTask)
 
-    return render_template('newtasksview.html', new_tasks=new_tasks)
+    return render_template('tasksview.html', new_tasks=new_tasks)
 
 
 @app.route('/implantview')
@@ -362,7 +394,7 @@ def display_live_implants(implant_id=None):
 
     all_data = get_alive_implants()
     implants = [attributes_to_dict(Implant, single_data) for single_data in all_data]
-    return render_template('implants.html', implants=implants)
+    return render_template('components/implants_table.html', implants=implants)
 
 
 @app.route('/c2messages')
@@ -370,7 +402,7 @@ def display_live_implants(implant_id=None):
 def display_c2_messages():
     all_data = get_c2_messages()
     c2messages = [attributes_to_dict(C2Message, single_data) for single_data in all_data]
-    return render_template('c2messages.html', c2messages=c2messages)
+    return render_template('components/c2_message_logs.html', c2messages=c2messages)
 
 
 @app.route('/commands')
@@ -378,7 +410,7 @@ def display_c2_messages():
 def display_command_handler():
     all_data = get_alive_implants()
     implants = [attributes_to_dict(Implant, single_data) for single_data in all_data]
-    return render_template('commands.html', implants=implants,username=auth.username())
+    return render_template('components/commands_form.html', implants=implants,username=auth.username())
 
 
 @app.route('/c2view')
@@ -419,13 +451,36 @@ def list_payloads():
     files = os.listdir(PAYLOADS_DIR)
     sorted_files = sorted(files, key=lambda x: os.path.getctime(os.path.join(PAYLOADS_DIR, x)))
     images = [f for f in sorted_files]
-    return render_template('payloads.html', images=images)   
+    return render_template('payloads.html', images=images)
 
 
 @app.route('/payload/<path:filename>', methods=['GET'])
 @auth.login_required
 def serve_payload(filename):
-    return send_from_directory(PAYLOADS_DIR, filename) 
+    return send_from_directory(PAYLOADS_DIR, filename)
+
+
+@app.route('/reports', methods=['GET'])
+@auth.login_required
+def list_reports():
+    files = os.listdir(REPORTS_DIR)
+    return render_template('reports.html', reports=files)
+
+
+@app.route('/reports/<path:filename>', methods=['GET'])
+@auth.login_required
+def serve_report(filename):
+    return send_from_directory(REPORTS_DIR, filename)
+
+@app.route('/generate_reports')
+@auth.login_required
+def generate_reports():
+    try:
+        do_generate_reports()
+    except Exception as e:
+        app.logger.error(f"Error generating reports: {e}")
+        pass
+    return redirect(url_for('list_reports'))
 
 
 @app.route('/autocompletecmd/<implant_id>', methods=['GET'])
@@ -490,13 +545,13 @@ def autocompletecmd(implant_id=None,commandRemote=None):
             cmd_with_removed_common.remove(i)
     cmd_with_removed_common.sort()
 
-    return render_template('autocomplete.html', commands=cmd_with_removed_common)
+    return render_template('components/autocomplete.html', commands=cmd_with_removed_common)
 
 
 if __name__ == '__main__':
     # For debugging
     app.run(debug=True)
-    
+
     # For production
     # from waitress import serve
     # serve(app, host="127.0.0.1", port=5000)
